@@ -1,0 +1,61 @@
+{
+  "name": "@shangxueink/koishi-plugin-puppeteer-without-canvas",
+  "description": "Browser API service for Koishi",
+  "version": "3.8.3",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "src",
+    "index.html"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "bugs": {
+    "url": ""
+  },
+  "homepage": "",
+  "koishi": {
+    "description": {
+      "en": "Browser service",
+      "zh": "浏览器服务"
+    },
+    "service": {
+      "implements": [
+        "puppeteer",
+        "component:html"
+      ]
+    }
+  },
+  "keywords": [
+    "bot",
+    "chatbot",
+    "koishi",
+    "plugin",
+    "screenshot",
+    "browser",
+    "headless",
+    "service",
+    "render",
+    "puppeteer"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.17.2"
+  },
+  "devDependencies": {
+    "@cordisjs/plugin-http": "^0.6.1",
+    "@cordisjs/plugin-proxy-agent": "^0.3.3",
+    "@types/node": "^22.1.0",
+    "atsc": "^2.1.0",
+    "koishi": "^4.17.11",
+    "typescript": "^5.5.3"
+  },
+  "dependencies": {
+    "@koishijs/canvas": "^0.2.0",
+    "puppeteer-core": "^22.5.0",
+    "puppeteer-finder": "^1.1.0"
+  }
+}
