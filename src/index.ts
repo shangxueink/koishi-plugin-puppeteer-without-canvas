@@ -463,7 +463,9 @@ namespace Puppeteer {
         remote: Schema.const(true).required(),
         endpoint: Schema.string().description(
           '远程浏览器的端点。<br>' +
-          '例：WebSocket URL:  `ws://localhost:14550/devtools/browser/[id]`'
+          '例：<br>' +
+          'WebSocket URL:  `ws://localhost:14550/devtools/browser/[id]`<br>' +
+          'HTTP URL:  `http://localhost:14550`<br>'
         ).required(),
         headers: Schema.dict(String).role('table').description(
           '连接到远程浏览器时使用的 HTTP 请求头。<br>' +
