@@ -1,8 +1,9 @@
 import CanvasService, { Canvas, CanvasRenderingContext2D, Image } from '@koishijs/canvas'
-import { Binary, Context } from 'koishi'
-import { Page } from 'puppeteer-core'
+import { type Awaitable, Binary, Context, h } from 'koishi'
+import { type ElementHandle, Page } from 'puppeteer-core'
 import { resolve } from 'path'
 import { pathToFileURL } from 'url'
+import type { } from 'koishi-plugin-fonts'
 
 const kElement = Symbol('element')
 
@@ -75,7 +76,14 @@ class CanvasElement extends BaseElement implements Canvas {
     },
   })
 
-  constructor(page: Page, id: string, public width: number, public height: number) {
+  constructor(
+    page: Page,
+    id: string,
+    public width: number,
+    public height: number,
+    private fontFaceSet: FontFace[] = [],
+    private styleHandles: ElementHandle<Element>[] = [],
+  ) {
     super(page, id)
   }
 
@@ -100,6 +108,21 @@ class CanvasElement extends BaseElement implements Canvas {
   async toBuffer(type: 'image/png') {
     const url = await this.toDataURL(type)
     return Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+  }
+
+  async dispose() {
+    await super.dispose()
+    await Promise.all(this.fontFaceSet.map(async (fontFace) => {
+      await this.page.evaluate((fontFace) => {
+        document.fonts.delete(fontFace)
+      }, fontFace)
+    }))
+    await Promise.all(this.styleHandles.map(async (handle) => {
+      try {
+        await handle.evaluate(node => node.remove())
+        await handle.dispose()
+      } catch (e) { }
+    }))
   }
 }
 
@@ -158,9 +181,49 @@ export default class extends CanvasService {
     this.page = null
   }
 
-  async createCanvas(width: number, height: number) {
+  async createCanvas(
+    width: number,
+    height: number,
+    options?: {
+      families: string[]
+      text?: string
+    },
+  ) {
+    const fontFaceSet = []
+    const styleHandles = []
     try {
       const name = `canvas_${++this.counter}`
+      if (options && options.families.length && this.ctx.fonts) {
+        try {
+          const fonts = await this.ctx.fonts.get(options.families)
+          await Promise.all(fonts.map(async (font) => {
+            if (font.format === 'google') {
+              const style = await this.page.addStyleTag({ url: font.path })
+              styleHandles.push(style)
+            } else {
+              await this.page.evaluate((font, fontFaceSet) => {
+                const fontFace = new FontFace(
+                  font.family,
+                  `url(${font.path}) format('${font.format}')`,
+                  font.descriptors,
+                )
+                document.fonts.add(fontFace)
+                fontFaceSet.push(fontFace)
+              }, font, fontFaceSet)
+            }
+          }))
+          if (options?.text) {
+            await this.page.evaluate(async (text, families) => {
+              await document.fonts.load(
+                `1px ${families.join(',')}`,
+                text,
+              )
+            }, options.text, options.families)
+          }
+        } catch (e) {
+          this.ctx.logger('puppeteer').warn('加载字体失败，将使用系统默认字体：', e.message)
+        }
+      }
       await this.page.evaluate([
         `const ${name} = document.createElement('canvas');`,
         `${name}.width = ${width};`,
@@ -168,10 +231,37 @@ export default class extends CanvasService {
         `${name}.id = ${JSON.stringify(name)};`,
         `document.body.appendChild(${name});`,
       ].join('\n'))
-      return new CanvasElement(this.page, name, width, height)
+      return new CanvasElement(this.page, name, width, height, fontFaceSet, styleHandles)
     } catch (err) {
       this.ctx.logger('puppeteer').warn(err)
       throw err
+    }
+  }
+
+  async render(
+    width: number,
+    height: number,
+    callback: (ctx: CanvasRenderingContext2D) => Awaitable<void>,
+    options?: {
+      families: string[]
+      text?: string
+    },
+  ) {
+    let canvas: CanvasElement
+    try {
+      canvas = await this.createCanvas(width, height, options)
+      await callback(canvas.getContext('2d'))
+      const buffer = await canvas.toBuffer('image/png')
+      return h.image(buffer, 'image/png')
+    } catch (err) {
+      this.ctx.logger('puppeteer').warn(err)
+      throw err
+    } finally {
+      try {
+        await canvas.dispose()
+      } catch (err) {
+        this.ctx.logger('puppeteer').warn(err)
+      }
     }
   }
 

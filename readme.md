@@ -157,3 +157,52 @@ ctx.puppeteer.render('<div style="color: red">Hello World</div>')
 ## 许可证
 
 MIT
+## 
+API 参考
+
+### puppeteer.page()
+### puppeteer.page(options?)
+
+- **options:**
+  - **beforeGotoPage:** `(page: Page) => Promise<void>` 页面跳转前的回调函数，负责执行一些[导航到页面之前要设置的操作](https://pptr.dev/search?q=before%20navigating%20to%20the)
+  - **url:** `string` 页面地址
+  - **gotoOptions:** [`GotoOptions`](https://pptr.dev/api/puppeteer.gotooptions) 页面跳转选项
+  - **content:** `string` 要渲染的 HTML
+  - **families:** `string[]` 字体名
+- 返回值: `Promise<Page>`
+
+创建一个新页面。
+
+### puppeteer.render(content, callback?, families?)
+
+- **content:** `string` 要渲染的 HTML
+- **callback:** `(page, next) => Promise<string>` 回调函数
+  - **page:** `Page` 页面实例
+  - **next:** `(handle: ElementHandle) => Promise<string>` 渲染函数
+- **families:** `string[]` 字体列表
+- 返回值: `string`
+
+渲染一个 HTML 页面，可以设置要渲染的字体。
+
+### canvas.createCanvas(width, height, options?)
+
+- **width:** `number` 画布宽度
+- **height:** `number` 画布高度
+- **options:**
+  - **families:** `string[]` 字体列表
+  - **text:** `string` 预加载的文本
+- 返回值: `Canvas`
+
+创建一个画布，可以设置要使用的字体。
+
+### canvas.render(width, height, callback, options?)
+
+- **width:** `number` 画布宽度
+- **height:** `number` 画布高度
+- **callback:** `(ctx: CanvasRenderingContext2D) => Awaitable<void>` 回调函数
+- **options:**
+  - **families:** `string[]` 字体列表
+  - **text:** `string` 预加载的文本
+- 返回值: `Element`
+
+渲染一个画布，可以设置要使用的字体。
