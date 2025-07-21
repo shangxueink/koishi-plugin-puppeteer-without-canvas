@@ -27,7 +27,7 @@ export class Tag {
   private attributes: Attributes = {}
   private innerText: string = ''
 
-  constructor(public tag: string) {}
+  constructor(public tag: string) { }
 
   child(tag: string) {
     const child = new Tag(tag)

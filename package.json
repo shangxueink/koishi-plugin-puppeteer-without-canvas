@@ -1,27 +1,33 @@
 {
   "name": "@shangxueink/koishi-plugin-puppeteer-without-canvas",
   "description": "Browser API service for Koishi",
-  "version": "3.8.3",
+  "version": "1.2.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "src",
+    "test",
     "index.html"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/shangxueink/koishi-plugin-puppeteer"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/shangxueink/koishi-plugin-puppeteer/issues"
   },
   "homepage": "",
   "koishi": {
     "description": {
+      "zh": "浏览器服务",
       "en": "Browser service",
-      "zh": "浏览器服务"
+      "ja": "ブラウザサービス",
+      "ko": "브라우저 서비스",
+      "fr": "Service de navigateur",
+      "de": "Browser-Dienst",
+      "es": "Servicio de navegador"
     },
     "service": {
       "implements": [

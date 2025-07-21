@@ -9,7 +9,7 @@ const kElement = Symbol('element')
 class BaseElement {
   public [kElement] = true
 
-  constructor(protected page: Page, protected id: string) {}
+  constructor(protected page: Page, protected id: string) { }
 
   get selector() {
     return `document.querySelector("#${this.id}")`
@@ -56,7 +56,7 @@ class CanvasElement extends BaseElement implements Canvas {
       if (Reflect.has(target, prop) || typeof prop === 'symbol') {
         return Reflect.get(target, prop, receiver)
       }
-      return new Proxy(() => {}, {
+      return new Proxy(() => { }, {
         apply: (target, thisArg, argArray) => {
           this.stmts.push(`ctx.${prop}(${argArray.map((value) => {
             if (value[kElement]) return value.selector
@@ -107,7 +107,13 @@ class ImageElement extends BaseElement implements Image {
   public naturalHeight: number
   public naturalWidth: number
 
-  constructor(private ctx: Context, page: Page, id: string, private source: string | URL | Buffer | ArrayBufferLike) {
+  constructor(
+    private ctx: Context,
+    page: Page,
+    id: string,
+    private source: string | URL | Buffer | ArrayBufferLike,
+    private type?: string,
+  ) {
     super(page, id)
   }
 
@@ -124,7 +130,7 @@ class ImageElement extends BaseElement implements Image {
     } else {
       base64 = Binary.toBase64(this.source)
     }
-    const size = await this.page.evaluate(`loadImage(${JSON.stringify(this.id)}, ${JSON.stringify(base64)})`) as any
+    const size = await this.page.evaluate(`loadImage(${JSON.stringify(this.id)}, ${JSON.stringify(base64)}, ${JSON.stringify(this.type)})`) as any
     this.naturalWidth = size.width
     this.naturalHeight = size.height
   }
@@ -169,10 +175,11 @@ export default class extends CanvasService {
     }
   }
 
-  async loadImage(source: string | URL | Buffer | ArrayBufferLike): Promise<Image> {
+  async loadImage(source: string | URL | Buffer | ArrayBufferLike, type?: string): Promise<Image> {
     const id = `image_${++this.counter}`
-    const image = new ImageElement(this.ctx, this.page, id, source)
+    const image = new ImageElement(this.ctx, this.page, id, source, type)
     await image.initialize()
     return image
   }
+
 }
