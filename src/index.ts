@@ -430,6 +430,10 @@ namespace Puppeteer {
 - **可选服务：** [fonts](/market?keyword=font+email:shigma10826@gmail.com+email:saarchaffee@qq.com)
 
 ---
+
+<p>➣ <a href="https://github.com/shangxueink/koishi-plugin-puppeteer-without-canvas" target="_blank">点我前往项目地址</a></p>
+
+---
   `;
 
   type LaunchOptions = Parameters<typeof puppeteer.launch>[0] & {}
@@ -478,9 +482,9 @@ namespace Puppeteer {
         args: Schema.array(String)
           .description(
             '启动 Chrome/Chromium 浏览器时传递的命令行参数。<br>' +
-            '常用参数：' +
-            '- `--no-sandbox`: 禁用沙箱（在 Docker 或 root 用户下常用）<br>' +
-            '- `--disable-gpu`: 禁用 GPU 加速<br>' +
+            '常用参数：<br>' +
+            '`--no-sandbox`: 禁用沙箱（在 Docker 或 root 用户下常用）<br>' +
+            '`--disable-gpu`: 禁用 GPU 加速<br>' +
             '更多 [Chromium 参数请参考这个页面](https://peter.sh/experiments/chromium-command-line-switches/)。'
           )
           .default(process.getuid?.() === 0 ? ["--no-sandbox", "--disable-gpu"] : []),

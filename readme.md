@@ -4,7 +4,6 @@
 
 为 Koishi 提供 Puppeteer 服务，支持本地浏览器和远程浏览器连接。
 
-## 功能特点
 
 - 支持本地启动 Chrome/Chromium 浏览器
 - 支持连接远程浏览器实例
@@ -14,11 +13,12 @@
 
 ## 配置说明
 
-### 基本配置
+<details>
+<summary><strong>基本配置</strong></summary>
 
 插件提供了两种工作模式：本地模式和远程模式。
 
-#### 本地模式（默认）
+### 本地模式（默认）
 
 在本地模式下，插件会自动启动 Chrome/Chromium 浏览器：
 
@@ -48,7 +48,7 @@
 }
 ```
 
-#### 远程模式
+### 远程模式
 
 在远程模式下，插件会连接到已经运行的浏览器实例：
 
@@ -66,12 +66,14 @@
   defaultViewport: { width: 1280, height: 768, deviceScaleFactor: 2 }
 }
 ```
+</details>
 
-### headers 配置示例
+<details>
+<summary><strong>headers 配置示例</strong></summary>
 
 在远程模式下，可以使用 `headers` 配置项设置连接请求的 HTTP 头信息：
 
-#### 基本身份验证
+### 基本身份验证
 
 ```js
 {
@@ -83,7 +85,7 @@
 }
 ```
 
-#### API 密钥认证
+### API 密钥认证
 
 ```js
 {
@@ -95,7 +97,7 @@
 }
 ```
 
-#### 自定义用户代理
+### 自定义用户代理
 
 ```js
 {
@@ -107,7 +109,7 @@
 }
 ```
 
-#### 多个头信息
+### 多个头信息
 
 ```js
 {
@@ -120,8 +122,10 @@
   }
 }
 ```
+</details>
 
-## 启动远程浏览器
+<details>
+<summary><strong>启动远程浏览器</strong></summary>
 
 我们提供了一个 Python 脚本来帮助启动远程浏览器实例。脚本位于 `test/chrome_remote_debug.py`。
 
@@ -132,8 +136,10 @@
 3. 脚本会启动 Chrome 浏览器并开启远程调试模式
 4. 选择连接方式（WebSocket URL、HTTP URL 等）
 5. 使用提供的配置信息在 Koishi 中设置插件
+</details>
 
-## 使用示例
+<details>
+<summary><strong>使用示例</strong></summary>
 
 ### 渲染 HTML
 
@@ -145,22 +151,20 @@ ctx.puppeteer.render('<div style="color: red">Hello World</div>')
     console.log(image) // 返回 h.image 对象的字符串表示
   })
 ```
+</details>
 
-
-## 注意事项
+<details>
+<summary><strong>注意事项</strong></summary>
 
 1. 在 Docker 或 root 用户下运行时，建议添加 `--no-sandbox` 参数
 2. 远程模式需要确保远程浏览器已启动并开启了调试模式
 3. 如果自动查找 Chrome 失败，请手动指定 `executablePath`
 4. 在远程模式下，`headers` 只影响连接请求，不影响浏览器本身的行为
+</details>
 
-## 许可证
-
-MIT
-## 
-API 参考
-
-### puppeteer.page()
+<details>
+<summary><strong>API 参考</strong></summary>
+ 
 ### puppeteer.page(options?)
 
 - **options:**
@@ -206,3 +210,51 @@ API 参考
 - 返回值: `Element`
 
 渲染一个画布，可以设置要使用的字体。
+</details>
+
+## 开发指南
+
+<details>
+<summary><strong>如何开发/PR</strong></summary>
+
+### 克隆仓库
+
+```bash
+yarn clone shangxueink/koishi-plugin-puppeteer-without-canvas
+```
+
+### 修改 Koishi 根工作区的 tsconfig.json
+
+📝 如果你要开发本仓库的 .ts 项目，那么这一步是必须的：（.js 项目可略过）
+
+在 tsconfig.json 中添加以下内容：
+
+```json
+"koishi-plugin-*": [
+  "external/*/src",
+  "external/*/packages/core/src",
+  "packages/*/src",
+  "plugins/*/src"
+],
+// 添加下面三行
+"@shangxueink/koishi-plugin-puppeteer-without-canvas": [ // 添加这一行
+  "external/puppeteer-without-canvas/src",               // 添加这一行
+],                                                       // 添加这一行
+```
+
+### 以开发模式启动 🚧
+
+```bash
+yarn dev
+```
+
+### 构建
+
+```bash
+yarn build puppeteer-without-canvas
+```
+</details>
+
+## 许可证
+
+MIT
