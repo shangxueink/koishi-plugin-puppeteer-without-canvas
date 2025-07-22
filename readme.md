@@ -4,7 +4,6 @@
 
 为 Koishi 提供 Puppeteer 服务，支持本地浏览器和远程浏览器连接。
 
-
 - 支持本地启动 Chrome/Chromium 浏览器
 - 支持连接远程浏览器实例
 - 提供 HTML 渲染和截图功能
@@ -122,20 +121,49 @@
   }
 }
 ```
+
+### 代理配置示例
+
+以下是一个通过 HTTP 代理连接远程浏览器的 `headers` 配置示例。请注意，`headers` 字段本身并不直接配置代理，而是用于在连接时发送自定义的 HTTP 头。代理的配置通常是在启动远程浏览器时通过命令行参数完成的。
+
+```js
+{
+  remote: true,
+  endpoint: 'http://localhost:14550', // HTTP URL
+  headers: {
+    // 这里的 headers 是针对 Koishi 插件连接远程浏览器时的 HTTP 头，
+    // 而不是直接配置代理。
+    // 如果远程浏览器本身需要通过代理访问网络，则需要在启动远程浏览器时配置。
+    "X-Proxy-Info": "Using External Proxy" 
+  }
+}
+```
 </details>
 
 <details>
 <summary><strong>启动远程浏览器</strong></summary>
 
-我们提供了一个 Python 脚本来帮助启动远程浏览器实例。脚本位于 `test/chrome_remote_debug.py`。
+如果您需要启动一个支持远程调试的 Chrome/Chromium 浏览器实例，可以使用以下命令行参数：
 
-### 使用方法
+```bash
+# 启动 Chrome/Chromium 并开启远程调试端口
+chrome.exe --remote-debugging-port=14550 --no-sandbox --disable-gpu
 
-1. 确保已安装 Python
-2. 运行脚本：`python test/chrome_remote_debug.py`
-3. 脚本会启动 Chrome 浏览器并开启远程调试模式
-4. 选择连接方式（WebSocket URL、HTTP URL 等）
-5. 使用提供的配置信息在 Koishi 中设置插件
+# 设置 HTTP 代理
+chrome.exe --remote-debugging-port=14550 --proxy-server="http://proxy.example.com:8080"
+
+# 设置 SOCKS5 代理
+chrome.exe --remote-debugging-port=14550 --proxy-server="socks5://proxy.example.com:1080"
+
+# 对特定域名使用代理
+chrome.exe --remote-debugging-port=14550 --proxy-server="proxy.example.com:8080;direct://*.example.org"
+```
+
+#### 注意事项
+
+- 代理设置仅影响浏览器的网络请求，不影响 WebSocket 调试连接。
+- 如果代理需要认证，可以使用 `--proxy-auth=username:password` 参数。
+- 在生产环境中，建议使用环境变量或配置文件管理代理信息，避免在命令行中暴露敏感信息。
 </details>
 
 <details>
@@ -156,60 +184,10 @@ ctx.puppeteer.render('<div style="color: red">Hello World</div>')
 <details>
 <summary><strong>注意事项</strong></summary>
 
-1. 在 Docker 或 root 用户下运行时，建议添加 `--no-sandbox` 参数
-2. 远程模式需要确保远程浏览器已启动并开启了调试模式
-3. 如果自动查找 Chrome 失败，请手动指定 `executablePath`
-4. 在远程模式下，`headers` 只影响连接请求，不影响浏览器本身的行为
-</details>
-
-<details>
-<summary><strong>API 参考</strong></summary>
- 
-### puppeteer.page(options?)
-
-- **options:**
-  - **beforeGotoPage:** `(page: Page) => Promise<void>` 页面跳转前的回调函数，负责执行一些[导航到页面之前要设置的操作](https://pptr.dev/search?q=before%20navigating%20to%20the)
-  - **url:** `string` 页面地址
-  - **gotoOptions:** [`GotoOptions`](https://pptr.dev/api/puppeteer.gotooptions) 页面跳转选项
-  - **content:** `string` 要渲染的 HTML
-  - **families:** `string[]` 字体名
-- 返回值: `Promise<Page>`
-
-创建一个新页面。
-
-### puppeteer.render(content, callback?, families?)
-
-- **content:** `string` 要渲染的 HTML
-- **callback:** `(page, next) => Promise<string>` 回调函数
-  - **page:** `Page` 页面实例
-  - **next:** `(handle: ElementHandle) => Promise<string>` 渲染函数
-- **families:** `string[]` 字体列表
-- 返回值: `string`
-
-渲染一个 HTML 页面，可以设置要渲染的字体。
-
-### canvas.createCanvas(width, height, options?)
-
-- **width:** `number` 画布宽度
-- **height:** `number` 画布高度
-- **options:**
-  - **families:** `string[]` 字体列表
-  - **text:** `string` 预加载的文本
-- 返回值: `Canvas`
-
-创建一个画布，可以设置要使用的字体。
-
-### canvas.render(width, height, callback, options?)
-
-- **width:** `number` 画布宽度
-- **height:** `number` 画布高度
-- **callback:** `(ctx: CanvasRenderingContext2D) => Awaitable<void>` 回调函数
-- **options:**
-  - **families:** `string[]` 字体列表
-  - **text:** `string` 预加载的文本
-- 返回值: `Element`
-
-渲染一个画布，可以设置要使用的字体。
+1. 在 Docker 或 root 用户下运行时，建议添加 `--no-sandbox` 参数。
+2. 远程模式需要确保远程浏览器已启动并开启了调试模式。
+3. 如果自动查找 Chrome 失败，请手动指定 `executablePath`。
+4. 在远程模式下，`headers` 只影响 Koishi 插件连接远程浏览器时的请求头，不影响浏览器本身的行为。
 </details>
 
 ## 开发指南
@@ -222,12 +200,11 @@ ctx.puppeteer.render('<div style="color: red">Hello World</div>')
 ```bash
 yarn clone shangxueink/koishi-plugin-puppeteer-without-canvas
 ```
+这会自动调用 `git clone` 到 `./external/puppeteer-without-canvas` 下
 
 ### 修改 Koishi 根工作区的 tsconfig.json
 
-📝 如果你要开发本仓库的 .ts 项目，那么这一步是必须的：（.js 项目可略过）
-
-在 tsconfig.json 中添加以下内容：
+在 `./tsconfig.json` 中添加以下内容：
 
 ```json
 "koishi-plugin-*": [
@@ -237,9 +214,9 @@ yarn clone shangxueink/koishi-plugin-puppeteer-without-canvas
   "plugins/*/src"
 ],
 // 添加下面三行
-"@shangxueink/koishi-plugin-puppeteer-without-canvas": [ // 添加这一行
-  "external/puppeteer-without-canvas/src",               // 添加这一行
-],                                                       // 添加这一行
+"@shangxueink/koishi-plugin-puppeteer-without-canvas": [
+  "external/puppeteer-without-canvas/src",              
+],                                                      
 ```
 
 ### 以开发模式启动 🚧
@@ -248,7 +225,7 @@ yarn clone shangxueink/koishi-plugin-puppeteer-without-canvas
 yarn dev
 ```
 
-### 构建
+### 编译构建
 
 ```bash
 yarn build puppeteer-without-canvas
