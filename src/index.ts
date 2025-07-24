@@ -1,12 +1,14 @@
 import puppeteer, { Browser, ConnectOptions, ElementHandle, GoToOptions, Page } from 'puppeteer-core'
-import find from 'puppeteer-finder'
-import { } from '@cordisjs/plugin-proxy-agent'
-import { Context, h, hyphenate, Schema, Service, type Awaitable } from 'koishi'
+import { Context, h, hyphenate, Schema, Service } from 'koishi'
 import { SVG, SVGOptions } from './svg'
+import find from 'puppeteer-finder'
 import Canvas from './canvas'
-import { resolve } from 'path'
-import { pathToFileURL } from 'url'
-import type { } from 'koishi-plugin-fonts'
+
+import { pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+
+import { } from '@cordisjs/plugin-proxy-agent'
+import { } from 'koishi-plugin-fonts'
 
 export * from './svg'
 
@@ -31,8 +33,92 @@ class Puppeteer extends Service {
     if (this.config.enableCanvas !== false) {
       ctx.plugin(Canvas)
     }
+
+    // 注册 HTML 组件
+    // 只在构造时注册一次 用于指令重启
+    this.registerHtmlComponent()
+
+    // 根据配置决定是否注册重启指令
+    if (this.config.enableRestartCommand !== false) {
+      ctx.command('puppeteer.restart', '重启 Puppeteer 浏览器服务')
+        .action(async ({ session }) => {
+          try {
+            session?.send('正在重启 Puppeteer 服务...')
+
+            // 停止当前浏览器实例
+            await this.stopBrowser()
+
+            // 重新启动浏览器
+            await this.startBrowser()
+
+            return '✅ Puppeteer 服务重启成功'
+          } catch (error) {
+            ctx.logger.error('Puppeteer 服务重启失败:', error)
+            return `❌ Puppeteer 服务重启失败: ${error.message}`
+          }
+        })
+    }
   }
+
+  private registerHtmlComponent() {
+    const transformStyle = (source: {}, base = {}) => {
+      return Object.entries({ ...base, ...source }).map(([key, value]) => {
+        return `${hyphenate(key)}: ${Array.isArray(value) ? value.join(', ') : value}`
+      }).join('; ')
+    }
+
+    this.ctx.component('html', async (attrs, children) => {
+      const head: h[] = []
+
+      const transform = (element: h) => {
+        if (element.type === 'head') {
+          head.push(...element.children)
+          return
+        }
+        const attrs = { ...element.attrs }
+        if (typeof attrs.style === 'object') {
+          attrs.style = transformStyle(attrs.style)
+        }
+        return h(element.type, attrs, element.children.map(transform).filter(Boolean))
+      }
+
+      // 确保浏览器已连接
+      await this.ensureConnected()
+
+      const page = await this.page()
+      try {
+        if (attrs.src) {
+          await page.goto(attrs.src)
+        } else {
+          await page.goto(pathToFileURL(resolve(__dirname, '../index.html')).href)
+          const bodyStyle = typeof attrs.style === 'object'
+            ? transformStyle({ display: 'inline-block' }, attrs.style)
+            : ['display: inline-block', attrs.style].filter(Boolean).join('; ')
+          const content = children.map(transform).filter(Boolean).join('')
+          const lang = attrs.lang ? ` lang="${attrs.lang}"` : ''
+          await page.setContent(`<html${lang}>
+            <head>${head.join('')}</head>
+            <body style="${bodyStyle}">${content}</body>
+          </html>`)
+        }
+        await page.waitForNetworkIdle({
+          timeout: attrs.timeout ? +attrs.timeout : undefined,
+        })
+        const body = await page.$(attrs.selector || 'body')
+        const clip = await body.boundingBox()
+        const screenshot = await page.screenshot({ clip }) as Buffer
+        return h.image(screenshot, 'image/png')
+      } finally {
+        await page?.close()
+      }
+    })
+  }
+
   async start() {
+    await this.startBrowser()
+  }
+
+  private async startBrowser() {
     const { remote, endpoint, executablePath, headers, headless, args = [], ...config } = this.config
 
     try {
@@ -126,64 +212,25 @@ class Puppeteer extends Service {
       this.ctx.logger.error(`Puppeteer 初始化失败: `, error)
       throw error
     }
-    const transformStyle = (source: {}, base = {}) => {
-      return Object.entries({ ...base, ...source }).map(([key, value]) => {
-        return `${hyphenate(key)}: ${Array.isArray(value) ? value.join(', ') : value}`
-      }).join('; ')
-    }
-
-    this.ctx.component('html', async (attrs, children) => {
-      const head: h[] = []
-
-      const transform = (element: h) => {
-        if (element.type === 'head') {
-          head.push(...element.children)
-          return
-        }
-        const attrs = { ...element.attrs }
-        if (typeof attrs.style === 'object') {
-          attrs.style = transformStyle(attrs.style)
-        }
-        return h(element.type, attrs, element.children.map(transform).filter(Boolean))
-      }
-
-      // 确保浏览器已连接
-      await this.ensureConnected()
-
-      const page = await this.page()
-      try {
-        if (attrs.src) {
-          await page.goto(attrs.src)
-        } else {
-          await page.goto(pathToFileURL(resolve(__dirname, '../index.html')).href)
-          const bodyStyle = typeof attrs.style === 'object'
-            ? transformStyle({ display: 'inline-block' }, attrs.style)
-            : ['display: inline-block', attrs.style].filter(Boolean).join('; ')
-          const content = children.map(transform).filter(Boolean).join('')
-          const lang = attrs.lang ? ` lang="${attrs.lang}"` : ''
-          await page.setContent(`<html${lang}>
-            <head>${head.join('')}</head>
-            <body style="${bodyStyle}">${content}</body>
-          </html>`)
-        }
-        await page.waitForNetworkIdle({
-          timeout: attrs.timeout ? +attrs.timeout : undefined,
-        })
-        const body = await page.$(attrs.selector || 'body')
-        const clip = await body.boundingBox()
-        const screenshot = await page.screenshot({ clip }) as Buffer
-        return h.image(screenshot, 'image/png')
-      } finally {
-        await page?.close()
-      }
-    })
   }
 
   async stop() {
-    if (this.config.remote) {
-      await this.browser?.disconnect()
-    } else {
-      await this.browser?.close()
+    await this.stopBrowser()
+  }
+
+  private async stopBrowser() {
+    try {
+      if (this.browser) {
+        if (this.config.remote) {
+          await this.browser.disconnect()
+        } else {
+          await this.browser.close()
+        }
+        this.browser = null
+        this.browserWSEndpoint = null
+      }
+    } catch (error) {
+      this.ctx.logger.warn('停止浏览器时出现错误:', error.message)
     }
   }
 
@@ -442,6 +489,7 @@ namespace Puppeteer {
   export interface Config extends LaunchOptions, ConnectOptions {
     enablePuppeteer?: boolean
     enableCanvas?: boolean
+    enableRestartCommand?: boolean
     remote?: boolean
     endpoint?: string
     headers?: Record<string, string>
@@ -496,6 +544,7 @@ namespace Puppeteer {
     Schema.object({
       enablePuppeteer: Schema.boolean().description('是否注册 puppeteer 服务。').default(true),
       enableCanvas: Schema.boolean().description('是否注册 canvas 服务。（默认关闭。）<br>注意: 这与[`koishi-plugin-canvas`](/market?keyword=koishi-plugin-canvas+email:shigma10826@gmail.com+email:void@anillc.cn+email:i.dlist@outlook.com)的`canvas`服务同名 但API不一致。').default(false),
+      enableRestartCommand: Schema.boolean().description('是否注册 puppeteer.restart 重启指令。启用后可通过指令重启浏览器服务。').default(false),
       enableReconnect: Schema.boolean().description('是否启用浏览器自动重连功能。当浏览器连接断开时，会尝试重新连接。').default(true),
       reconnectInterval: Schema.number().description('浏览器重连尝试的间隔时间（毫秒）。').default(1000),
       maxReconnectRetries: Schema.number().description('浏览器重连最大尝试次数。').default(3),

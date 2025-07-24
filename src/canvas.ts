@@ -1,9 +1,11 @@
 import CanvasService, { Canvas, CanvasRenderingContext2D, Image } from '@koishijs/canvas'
-import { type Awaitable, Binary, Context, h } from 'koishi'
-import { type ElementHandle, Page } from 'puppeteer-core'
-import { resolve } from 'path'
-import { pathToFileURL } from 'url'
-import type { } from 'koishi-plugin-fonts'
+import { Awaitable, Binary, Context, h } from 'koishi'
+import { ElementHandle, Page } from 'puppeteer-core'
+
+import { pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+
+import { } from 'koishi-plugin-fonts'
 
 const kElement = Symbol('element')
 
