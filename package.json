@@ -1,7 +1,7 @@
 {
   "name": "@shangxueink/koishi-plugin-puppeteer-without-canvas",
   "description": "Browser API service for Koishi",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -21,13 +21,13 @@
   "homepage": "",
   "koishi": {
     "description": {
-      "zh": "浏览器服务",
-      "en": "Browser service",
-      "ja": "ブラウザサービス",
-      "ko": "브라우저 서비스",
-      "fr": "Service de navigateur",
-      "de": "Browser-Dienst",
-      "es": "Servicio de navegador"
+      "zh": "浏览器服务。支持远程浏览器、可选的 Canvas 服务、指令重启、默认渲染类型、fonts 字体支持...",
+      "en": "Browser service. Supports remote browser, optional Canvas service, command restart, default rendering type, fonts support...",
+      "ja": "ブラウザサービス。リモートブラウザ、オプションのCanvasサービス、コマンド再起動、デフォルトのレンダリングタイプ、フォントのサポートなどをサポートします。",
+      "ko": "브라우저 서비스. 원격 브라우저, 선택적 캔버스 서비스, 명령 재시작, 기본 렌더링 유형, 글꼴 지원 등을 지원합니다.",
+      "fr": "Service de navigateur. Prend en charge le navigateur distant, le service Canvas optionnel, le redémarrage des commandes, le type de rendu par défaut, la prise en charge des polices...",
+      "de": "Browser-Dienst. Unterstützt Remote-Browser, optionalen Canvas-Dienst, Befehlsneustart, Standard-Rendering-Typ, Schriftartenunterstützung...",
+      "es": "Servicio de navegador. Soporta navegador remoto, servicio Canvas opcional, reinicio de comandos, tipo de renderizado predeterminado, soporte de fuentes..."
     },
     "service": {
       "optional": [
