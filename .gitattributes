@@ -1,0 +1,11 @@
+* text=auto
+
+*.png -text
+*.jpg -text
+*.ico -text
+*.gif -text
+*.webp -text
+
+* linguist-vendored
+plugins/src/** -linguist-vendored
+yarn-*.cjs linguist-vendored
