@@ -27,6 +27,7 @@ class Puppeteer extends Service {
   browser: Browser
   executable: string
   private browserWSEndpoint: string
+  private activePageCount: number = 0
 
   constructor(ctx: Context, public config: Puppeteer.Config) {
     super(ctx, 'puppeteer')
@@ -115,7 +116,10 @@ class Puppeteer extends Service {
   }
 
   async start() {
-    await this.startBrowser()
+    // 如果启用了立即关闭模式，则不在启动时初始化浏览器
+    if (!this.config.immediateClose) {
+      await this.startBrowser()
+    }
   }
 
   private async startBrowser() {
@@ -228,16 +232,45 @@ class Puppeteer extends Service {
         }
         this.browser = null
         this.browserWSEndpoint = null
+        this.activePageCount = 0
       }
     } catch (error) {
       this.ctx.logger.warn('停止浏览器时出现错误:', error.message)
     }
   }
 
+  // 检查并关闭浏览器
+  private async checkAndCloseBrowser() {
+    if (!this.config.immediateClose) return
+
+    if (this.activePageCount <= 0 && this.browser) {
+      try {
+        // 获取所有页面
+        const pages = await this.browser.pages()
+
+        // 检查是否只剩下空白页（about:blank）
+        const nonBlankPages = pages.filter(page => page.url() !== 'about:blank')
+
+        if (nonBlankPages.length === 0) {
+          this.ctx.logger.debug('所有页面已关闭，正在关闭浏览器连接')
+          await this.stopBrowser()
+        }
+      } catch (error) {
+        this.ctx.logger.warn('检查浏览器状态时出现错误:', error.message)
+      }
+    }
+  }
+
   // 检查浏览器连接状态并尝试重连
   private async ensureConnected() {
+    // 如果启用了立即关闭模式，且浏览器未连接，则启动浏览器
+    if (this.config.immediateClose && (!this.browser || !this.browser.connected)) {
+      await this.startBrowser()
+      return
+    }
+
     // 如果浏览器已连接，直接返回
-    if (this.browser.connected) return
+    if (this.browser && this.browser.connected) return
 
     // 如果未启用重连，则抛出异常
     if (this.config.enableReconnect === false) {
@@ -364,6 +397,19 @@ class Puppeteer extends Service {
 
       // 创建新页面
       page = await this.browser.newPage()
+
+      // 如果启用了立即关闭模式
+      // 包装 close 方法
+      if (this.config.immediateClose) {
+        this.activePageCount++
+        const originalClose = page.close.bind(page)
+        page.close = async () => {
+          await originalClose()
+          this.activePageCount--
+          await this.checkAndCloseBrowser()
+        }
+      }
+
       if (options) {
         if (options?.beforeGotoPage) {
           await options.beforeGotoPage(page)
@@ -496,6 +542,7 @@ namespace Puppeteer {
     enableReconnect?: boolean
     reconnectInterval?: number
     maxReconnectRetries?: number
+    immediateClose?: boolean
     render?: {
       type?: ImageType
       quality?: number
@@ -524,11 +571,12 @@ namespace Puppeteer {
       Schema.object({
         remote: Schema.const(false).default(false),
         executablePath: Schema.string().description(
-          'Chrome/Chromium 可执行文件的路径。<br>' +
+          '`Chrome/Chromium 可执行文件`的路径。一般无需指定。<br>' +
           '如果不指定，将自动从系统中查找。<br>' +
           '如果自动查找失败，请手动指定此路径。'
         ),
         headless: Schema.boolean().description('是否开启[无头模式](https://developer.chrome.com/blog/headless-chrome/)。无头模式下浏览器不会显示界面。').default(true),
+        immediateClose: Schema.boolean().description('是否在渲染完成后 立即关闭浏览器连接。启用后 会增加每次渲染的启动时间。适用于低频率渲染场景。').default(false).experimental(),
         args: Schema.array(String)
           .description(
             '启动 Chrome/Chromium 浏览器时传递的命令行参数。<br>' +
@@ -544,7 +592,10 @@ namespace Puppeteer {
     Schema.object({
       enablePuppeteer: Schema.boolean().description('是否注册 puppeteer 服务。').default(true),
       enableCanvas: Schema.boolean().description('是否注册 canvas 服务。（默认关闭。）<br>注意: 这与[`koishi-plugin-canvas`](/market?keyword=koishi-plugin-canvas+email:shigma10826@gmail.com+email:void@anillc.cn+email:i.dlist@outlook.com)的`canvas`服务同名 但API不一致。').default(false),
-      enableRestartCommand: Schema.boolean().description('是否注册 puppeteer.restart 重启指令。启用后可通过指令重启浏览器服务。').default(false),
+    }).description('服务注册'),
+
+    Schema.object({
+      enableRestartCommand: Schema.boolean().description('是否注册 `puppeteer.restart` 重启指令。启用后可通过指令重启浏览器服务。').default(false),
       enableReconnect: Schema.boolean().description('是否启用浏览器自动重连功能。当浏览器连接断开时，会尝试重新连接。').default(true),
       reconnectInterval: Schema.number().description('浏览器重连尝试的间隔时间（毫秒）。').default(1000),
       maxReconnectRetries: Schema.number().description('浏览器重连最大尝试次数。').default(3),
