@@ -3,9 +3,12 @@ import { Context, h, hyphenate, Schema, Service } from 'koishi'
 import { SVG, SVGOptions } from './svg'
 import find from 'puppeteer-finder'
 import Canvas from './canvas'
+import { FontServer } from './font-server'
 
 import { pathToFileURL } from 'node:url'
-import { resolve } from 'node:path'
+import { resolve, join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 import { } from '@cordisjs/plugin-proxy-agent'
 import { } from 'koishi-plugin-fonts'
@@ -20,6 +23,156 @@ declare module 'koishi' {
 
 type RenderCallback = (page: Page, next: (handle?: ElementHandle) => Promise<string>) => Promise<string>
 
+export async function injectDefaultFont(page: Page, ctx: Context, config: Puppeteer.Config, fontUrl?: string) {
+  if (!config.enableFont || !config.enableTempUserDataDir) {
+    return
+  }
+
+  if (!fontUrl) {
+    return
+  }
+
+  try {
+    if (config.enableFontCache) { // 常态开启
+      await page.evaluateOnNewDocument((fontPath: string) => {
+        // Service Worker
+        const serviceWorkerScript = `
+          const CACHE_NAME = 'koishi-font-cache-v1';
+          const FONT_URL = '${fontPath}';
+
+          self.addEventListener('install', (event) => {
+            event.waitUntil(
+              caches.open(CACHE_NAME).then((cache) => {
+                return cache.add(FONT_URL);
+              })
+            );
+          });
+
+          self.addEventListener('fetch', (event) => {
+            if (event.request.url === FONT_URL) {
+              event.respondWith(
+                caches.match(event.request).then((response) => {
+                  return response || fetch(event.request);
+                })
+              );
+            }
+          });
+        `;
+
+        // 注册 Service Worker
+        if ('serviceWorker' in navigator) {
+          const blob = new Blob([serviceWorkerScript], { type: 'application/javascript' });
+          const serviceWorkerUrl = URL.createObjectURL(blob);
+
+          navigator.serviceWorker.register(serviceWorkerUrl).then((registration) => {
+            // console.log('字体缓存 Service Worker 注册成功:', registration);
+          }).catch((error) => {
+            console.error('字体缓存 Service Worker 注册失败:', error);
+          });
+        }
+      }, fontUrl);
+    }
+
+    await page.addStyleTag({
+      content: `
+        @font-face {
+          font-family: "KoishiDefaultFont";
+          src: url("${fontUrl}") format("truetype");
+          font-display: swap;
+        }
+      `
+    })
+
+    // 根据注入模式决定是否需要检查页面字体
+    let shouldInject = true
+
+    if (config.fontInjectMode === 'smart') {
+      const hasAnyFontFamily = await page.evaluate(() => {
+        for (let i = 0; i < document.styleSheets.length; i++) {
+          try {
+            const styleSheet = document.styleSheets[i]
+            if (styleSheet.cssRules) {
+              for (let j = 0; j < styleSheet.cssRules.length; j++) {
+                const rule = styleSheet.cssRules[j]
+                if (rule instanceof CSSStyleRule && rule.style.fontFamily) {
+                  return true
+                }
+              }
+            }
+          } catch (e) {
+            // 跨域样式表可能无法访问，忽略错误
+          }
+        }
+
+        const elementsWithInlineFont = document.querySelectorAll('[style*="font-family"]')
+        if (elementsWithInlineFont.length > 0) {
+          return true
+        }
+
+        return false
+      })
+
+      // 判断模式：只有在页面没有设置字体时才注入
+      shouldInject = !hasAnyFontFamily
+    }
+
+    // force 模式：shouldInject 保持为 true，无条件注入
+
+    // 根据判断结果决定是否注入字体样式
+    if (shouldInject) {
+      await page.addStyleTag({
+        content: `
+          /* 全局应用默认字体 */
+          *, *::before, *::after {
+            font-family: "KoishiDefaultFont" !important;
+          }
+          
+          html, body, div, span, p, h1, h2, h3, h4, h5, h6,
+          input, textarea, button, select, option, canvas {
+            font-family: "KoishiDefaultFont" !important;
+          }
+        `
+      })
+
+      await page.evaluate(() => {
+        return new Promise<void>((resolve) => {
+          // 检查字体加载
+          const checkFont = () => {
+            if (document.fonts && document.fonts.check) {
+              try {
+                const fontLoaded = document.fonts.check('16px "KoishiDefaultFont"')
+                if (fontLoaded) {
+                  resolve()
+                  return
+                }
+              } catch (e) {
+                // 如果 check 方法失败，继续使用其他方法
+              }
+            }
+
+            // 备用方法：等待 document.fonts.ready
+            if (document.fonts && document.fonts.ready) {
+              document.fonts.ready.then(() => {
+                setTimeout(resolve, 100)
+              }).catch(() => {
+                setTimeout(resolve, 500)
+              })
+            } else {
+              setTimeout(resolve, 500)
+            }
+          }
+
+          // 立即检查一次
+          checkFont()
+        })
+      })
+    }
+    // 如果页面已经设置了 font-family，则不注入任何字体样式
+  } catch (error) {
+    ctx.logger.error('默认字体注入失败:', error.message)
+  }
+}
+
 class Puppeteer extends Service {
   static [Service.provide] = 'puppeteer'
   static inject = ['http']
@@ -28,12 +181,16 @@ class Puppeteer extends Service {
   executable: string
   private browserWSEndpoint: string
   private activePageCount: number = 0
+  private fontServer: FontServer
 
   constructor(ctx: Context, public config: Puppeteer.Config) {
     super(ctx, 'puppeteer')
     if (this.config.enableCanvas !== false) {
       ctx.plugin(Canvas)
     }
+
+    // 初始化字体服务器
+    this.fontServer = new FontServer(ctx)
 
     // 注册 HTML 组件
     // 只在构造时注册一次 用于指令重启
@@ -46,11 +203,13 @@ class Puppeteer extends Service {
           try {
             session?.send('正在重启 Puppeteer 服务...')
 
-            // 停止当前浏览器实例
+            // 停止当前浏览器实例和字体服务器
             await this.stopBrowser()
+            await this.stopFontServer()
 
-            // 重新启动浏览器
+            // 重新启动浏览器和字体服务器
             await this.startBrowser()
+            await this.startFontServer()
 
             return '✅ Puppeteer 服务重启成功'
           } catch (error) {
@@ -59,6 +218,24 @@ class Puppeteer extends Service {
           }
         })
     }
+  }
+
+  private getFontCacheDir(customDir?: string): string {
+    if (customDir && customDir.trim()) {
+      // 使用用户指定的目录
+      const dir = resolve(customDir.trim())
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      return dir
+    }
+
+    // 使用默认目录
+    const defaultDir = join(tmpdir(), '.koishi-puppeteer-userDataDir');
+    if (!existsSync(defaultDir)) {
+      mkdirSync(defaultDir, { recursive: true })
+    }
+    return defaultDir
   }
 
   private registerHtmlComponent() {
@@ -101,6 +278,9 @@ class Puppeteer extends Service {
             <head>${head.join('')}</head>
             <body style="${bodyStyle}">${content}</body>
           </html>`)
+          // setContent 后重新注入默认字体
+          const fontUrl = this.getFontUrl()
+          await injectDefaultFont(page, this.ctx, this.config, fontUrl)
         }
         await page.waitForNetworkIdle({
           timeout: attrs.timeout ? +attrs.timeout : undefined,
@@ -120,10 +300,13 @@ class Puppeteer extends Service {
     if (!this.config.immediateClose) {
       await this.startBrowser()
     }
+
+    // 启动字体服务器（如果配置了字体路径）
+    await this.startFontServer()
   }
 
   private async startBrowser() {
-    const { remote, endpoint, executablePath, headers, headless, args = [], ...config } = this.config
+    const { remote, endpoint, executablePath, headers, headless, args = [], enableTempUserDataDir, TempUserDataDir, ...config } = this.config
 
     try {
       if (remote) {
@@ -196,13 +379,23 @@ class Puppeteer extends Service {
         try {
           // 启动浏览器
           this.ctx.logger.info('正在启动本地浏览器...')
-          this.browser = await puppeteer.launch({
+
+          // 准备启动选项
+          const launchOptions: any = {
             executablePath: this.executable,
             headless,
             args: localArgs,
             ...config
-          })
-          this.ctx.logger.info('本地浏览器启动成功。')
+          }
+
+          // 固定用户数据目录
+          if (enableTempUserDataDir) {
+            const userDataDir = this.getFontCacheDir(TempUserDataDir)
+            launchOptions.userDataDir = userDataDir
+            this.ctx.logger.info('用户数据目录: %c', userDataDir)
+          }
+
+          this.browser = await puppeteer.launch(launchOptions)
           this.browserWSEndpoint = this.browser.wsEndpoint()
         } catch (e) {
           if (e.message?.includes('Failed to launch')) {
@@ -220,6 +413,7 @@ class Puppeteer extends Service {
 
   async stop() {
     await this.stopBrowser()
+    await this.stopFontServer()
   }
 
   private async stopBrowser() {
@@ -389,6 +583,39 @@ class Puppeteer extends Service {
     }
   }
 
+  // 启动字体服务器
+  private async startFontServer() {
+    if (this.config.enableFont && this.config.fontPath) {
+      try {
+        await this.fontServer.start(this.config.fontPath)
+      } catch (error) {
+        this.ctx.logger.error('字体服务器启动失败:', error.message)
+      }
+    }
+  }
+
+  // 停止字体服务器
+  private async stopFontServer() {
+    try {
+      await this.fontServer.stop()
+    } catch (error) {
+      this.ctx.logger.warn('停止字体服务器时出现错误:', error.message)
+    }
+  }
+
+  // 获取字体 URL
+  private getFontUrl(): string | null {
+    if (!this.config.enableFont || !this.config.fontPath) {
+      return null
+    }
+
+    if (this.fontServer.isRunning()) {
+      return this.fontServer.getFontUrl()
+    }
+
+    return null
+  }
+
   page = async (options?: Puppeteer.PageOptions) => {
     let page
     try {
@@ -397,6 +624,19 @@ class Puppeteer extends Service {
 
       // 创建新页面
       page = await this.browser.newPage()
+
+      // 注入默认字体
+      const fontUrl = this.getFontUrl()
+      await injectDefaultFont(page, this.ctx, this.config, fontUrl)
+
+      const originalSetContent = page.setContent.bind(page)
+      page.setContent = async (html: string, options?: any) => {
+        const result = await originalSetContent(html, options)
+        // setContent 后重新注入默认字体
+        const fontUrl = this.getFontUrl()
+        await injectDefaultFont(page, this.ctx, this.config, fontUrl)
+        return result
+      }
 
       // 如果启用了立即关闭模式
       // 包装 close 方法
@@ -417,6 +657,9 @@ class Puppeteer extends Service {
         await page.goto(`${pathToFileURL(options.url)}`, options?.gotoOptions)
         if (options?.content) {
           await page.setContent(options.content)
+          // setContent 后重新注入默认字体
+          const fontUrl = this.getFontUrl()
+          await injectDefaultFont(page, this.ctx, this.config, fontUrl)
         }
         if (options?.families?.length && this.ctx.fonts) {
           try {
@@ -543,6 +786,12 @@ namespace Puppeteer {
     reconnectInterval?: number
     maxReconnectRetries?: number
     immediateClose?: boolean
+    enableFont?: boolean
+    fontPath?: string
+    fontInjectMode?: 'force' | 'smart'
+    enableFontCache?: boolean
+    enableTempUserDataDir?: boolean
+    TempUserDataDir?: string
     render?: {
       type?: ImageType
       quality?: number
@@ -567,7 +816,7 @@ namespace Puppeteer {
           '注意：这与本地模式的 `args` 不同，headers 只影响连接请求，不影响浏览器本身的行为。<br>' +
           '常用于设置身份验证、API密钥或自定义标识等。详细示例请参考 README。'
         ),
-      }),
+      }).description('远程浏览器设置'),
       Schema.object({
         remote: Schema.const(false).default(false),
         executablePath: Schema.string().description(
@@ -576,7 +825,7 @@ namespace Puppeteer {
           '如果自动查找失败，请手动指定此路径。'
         ),
         headless: Schema.boolean().description('是否开启[无头模式](https://developer.chrome.com/blog/headless-chrome/)。无头模式下浏览器不会显示界面。').default(true),
-        immediateClose: Schema.boolean().description('是否在渲染完成后 立即关闭浏览器连接。启用后 会增加每次渲染的启动时间。适用于低频率渲染场景。').default(false).experimental(),
+        immediateClose: Schema.boolean().description('是否在渲染完成后 立即关闭浏览器连接。<br>启用后 会增加每次渲染的启动时间。适用于低频率渲染场景。').default(false).experimental(),
         args: Schema.array(String)
           .description(
             '启动 Chrome/Chromium 浏览器时传递的命令行参数。<br>' +
@@ -585,8 +834,8 @@ namespace Puppeteer {
             '`--disable-gpu`: 禁用 GPU 加速<br>' +
             '更多 [Chromium 参数请参考这个页面](https://peter.sh/experiments/chromium-command-line-switches/)。'
           )
-          .default(process.getuid?.() === 0 ? ["--no-sandbox", "--disable-gpu"] : []),
-      }),
+          .default(process.getuid?.() === 0 ? ["--no-sandbox", "--disable-gpu", "--disable-web-security"] : ["--disable-web-security"]),
+      }).description('本地浏览器设置'),
     ]),
 
     Schema.object({
@@ -624,7 +873,42 @@ namespace Puppeteer {
         deviceScaleFactor: Schema.number().min(0).description('默认的设备缩放比率。').default(2),
       }),
       ignoreHTTPSErrors: Schema.boolean().description('在导航时忽略 HTTPS 错误。').default(false),
+      enableTempUserDataDir: Schema.boolean().description('是否固定用户数据目录。<br>- 需要使用本地浏览器。远程浏览器无效。').default(false).experimental(),
     }).description('浏览器设置'),
+    Schema.union([
+      Schema.object({
+        enableTempUserDataDir: Schema.const(false)
+      }),
+      Schema.object({
+        enableTempUserDataDir: Schema.const(true).required(),
+        TempUserDataDir: Schema.string().experimental().default(null)
+          .description('用户数据目录路径。建议保持默认值。<br>默认目录:`%temp%`目录下的 `.koishi-puppeteer-userDataDir`。'),
+      }),
+    ]),
+
+    Schema.object({
+      enableFont: Schema.boolean().description('是否为页面注入字体。<br>- 需要开启`enableTempUserDataDir`配置项以固定用户数据目录。<br>- 需要使用本地浏览器。远程浏览器无效。').default(false).experimental(),
+      enableFontCache: Schema.boolean().description('是否启用字体 Service Worker 缓存。启用后将在页面中注册 Service Worker 来缓存字体文件。').default(true).hidden(),
+    }).description('字体注入设置'),
+    Schema.union([
+      Schema.object({
+        enableFont: Schema.const(true).required(),
+        fontPath: Schema.path({
+          filters: [{ name: '字体文件', extensions: ['.ttf', '.otf', '.woff', '.woff2', '.ttc'] }],
+          allowCreate: true
+        }).experimental().default(null)
+          .description('字体文件路径。支持的格式：`.ttf`, `.otf`, `.woff`, `.woff2`, `.ttc`<br>例：`data/fonts/NotoColorEmoji-Regular.ttf`<br>实验性功能：渲染字体时会加载到内存里，此功能会显著增加渲染内存占用。'),
+        fontInjectMode: Schema.union([
+          Schema.const('smart').description('1.判断注入'),
+          Schema.const('force').description('2.强制注入'),
+        ]).default('smart').experimental()
+          .description('字体注入模式。<br>1.判断注入，仅在页面未设置字体时注入<br>2.强制注入，无论页面是否已设置字体都会注入'),
+      }),
+      Schema.object({
+        enableFont: Schema.const(false)
+      }),
+    ]),
+
   ]) as Schema<Config>
 }
 

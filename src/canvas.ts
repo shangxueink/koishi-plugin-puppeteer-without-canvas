@@ -7,6 +7,8 @@ import { resolve } from 'node:path'
 
 import { } from 'koishi-plugin-fonts'
 
+import { injectDefaultFont } from './index'
+
 const kElement = Symbol('element')
 
 class BaseElement {
@@ -171,6 +173,8 @@ export default class extends CanvasService {
     const page = await this.ctx.puppeteer.page()
     try {
       await page.goto(pathToFileURL(resolve(__dirname, '../index.html')).href)
+      // 注入默认字体到 Canvas 页面
+      await injectDefaultFont(page, this.ctx, this.ctx.puppeteer.config)
       this.page = page
     } catch (err) {
       await page.close()
