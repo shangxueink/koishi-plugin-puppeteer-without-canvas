@@ -197,11 +197,11 @@ class Puppeteer extends Service {
     this.registerHtmlComponent()
 
     // 根据配置决定是否注册重启指令
-    if (this.config.enableRestartCommand !== false) {
+    if (this.config.enableRestartCommand !== false && !this.config.immediateClose) {
       ctx.command('puppeteer.restart', '重启 Puppeteer 浏览器服务')
         .action(async ({ session }) => {
           try {
-            session?.send('正在重启 Puppeteer 服务...')
+            await session?.send('正在重启 Puppeteer 服务...')
 
             // 停止当前浏览器实例和字体服务器
             await this.stopBrowser()
@@ -217,6 +217,8 @@ class Puppeteer extends Service {
             return `❌ Puppeteer 服务重启失败: ${error.message}`
           }
         })
+    } else if (this.config.immediateClose && this.config.enableRestartCommand !== false) {
+      ctx.logger.warn('immediateClose 模式下 puppeteer.restart 指令已被禁用')
     }
   }
 
