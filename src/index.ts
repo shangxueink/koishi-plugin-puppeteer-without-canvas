@@ -24,7 +24,7 @@ declare module 'koishi' {
 type RenderCallback = (page: Page, next: (handle?: ElementHandle) => Promise<string>) => Promise<string>
 
 export async function injectDefaultFont(page: Page, ctx: Context, config: Puppeteer.Config, fontUrl?: string) {
-  if (!config.enableFont || !config.enableTempUserDataDir) {
+  if (!config.enableFont) {
     return
   }
 
@@ -33,7 +33,7 @@ export async function injectDefaultFont(page: Page, ctx: Context, config: Puppet
   }
 
   try {
-    if (config.enableFontCache) { // 常态开启
+    if (config.enableFontCache) { // 这个配置项只会是开启的
       await page.evaluateOnNewDocument((fontPath: string) => {
         // Service Worker
         const serviceWorkerScript = `
@@ -399,6 +399,7 @@ class Puppeteer extends Service {
 
           this.browser = await puppeteer.launch(launchOptions)
           this.browserWSEndpoint = this.browser.wsEndpoint()
+          this.ctx.logger.info('本地浏览器启动成功。')
         } catch (e) {
           if (e.message?.includes('Failed to launch')) {
             throw new Error(`启动浏览器失败，请检查 Chrome 是否已安装或路径是否正确: ${e.message}`)
@@ -884,12 +885,12 @@ namespace Puppeteer {
       Schema.object({
         enableTempUserDataDir: Schema.const(true).required(),
         TempUserDataDir: Schema.string().experimental().default(null)
-          .description('用户数据目录路径。建议保持默认值。<br>默认目录:`%temp%`目录下的 `.koishi-puppeteer-userDataDir`。'),
+          .description('用户数据目录路径。建议保持默认值。<br>默认目录:系统`temp`目录下的 `.koishi-puppeteer-userDataDir`。'),
       }),
     ]),
 
     Schema.object({
-      enableFont: Schema.boolean().description('是否为页面注入字体。<br>- 需要开启`enableTempUserDataDir`配置项以固定用户数据目录。<br>- 需要使用本地浏览器。远程浏览器无效。').default(false).experimental(),
+      enableFont: Schema.boolean().description('是否为页面注入字体。<br>- 此功能仅在本地浏览器生效。远程浏览器无效。').default(false).experimental(),
       enableFontCache: Schema.boolean().description('是否启用字体 Service Worker 缓存。启用后将在页面中注册 Service Worker 来缓存字体文件。').default(true).hidden(),
     }).description('字体注入设置'),
     Schema.union([
