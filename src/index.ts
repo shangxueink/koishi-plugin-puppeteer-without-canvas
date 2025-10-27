@@ -846,7 +846,7 @@ namespace Puppeteer {
     Schema.object({
       enablePuppeteer: Schema.boolean().description('是否注册 puppeteer 服务。').default(true),
       enableCanvas: Schema.boolean().description('是否注册 canvas 服务。（默认关闭。）<br>注意: 这与[`koishi-plugin-canvas`](/market?keyword=koishi-plugin-canvas+email:shigma10826@gmail.com+email:void@anillc.cn+email:i.dlist@outlook.com)的`canvas`服务同名 但API不一致。').default(false),
-      registerHtmlComponent: Schema.boolean().description('是否注册 `component:html` 服务。<br>注意: 启用后会覆盖 Koishi 的默认 `html` 组件行为。').default(false),
+      registerHtmlComponent: Schema.boolean().description('是否注册 `component:html` 服务。<br>注意: 启用后会覆盖 Koishi 的默认 `html` 组件行为。').default(true),
     }).description('服务注册'),
 
     Schema.object({
